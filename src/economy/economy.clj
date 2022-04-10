@@ -1,5 +1,6 @@
 (ns economy.economy
-  (:require [economy.order-matching :as om]))
+  (:require [economy.order-matching :as om]
+            [economy.order-generate :as og]))
 
 (def resources {:mammoth {:id :mammoth :ease [1 5] :initial-price 700}
                 :ketchup {:id :ketchup :ease [3 10] :initial-price 100}
@@ -26,6 +27,9 @@
                :lettuce []
                :bread   []}})
 
+;; Production of resources
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defn agent-decide-production
   "When given an agent object and the prices in the marketplace, returns the good
    which the agent decides to produce"
@@ -49,40 +53,8 @@
           state
           (keys (:agents state))))
 
-(defn target-burgers
-  "Calculates the number of burgers the agent will aim to make"
-  [state agent-id]
-  (let [inv (dissoc (get-in state [:agents agent-id :inventory]) :money)
-        money (get-in state [:agents agent-id :inventory :money])
-        prices (get-in state [:marketplace :prices])
-        total-val (+ money (apply + (vals (merge-with * prices inv))))
-        burger-price (apply + (vals prices))
-        burgers (int (/ total-val burger-price))]
-    (max 0 burgers)))
-
-;; order is a 4-tuple of type, material, order-placer id and amount
-[:sell :lettuce 0 2]
-
-(defn generate-orders
-  "Generates the orders an agent will place based on their target number of burgers and
-   current resources"
-  [agent target]
-  (keep (fn [[k v]] (when (not (zero? (- v target))) [(if (pos? (- v target)) :sell :buy) k (:id agent) (Math/abs (- v target))])) (dissoc (:inventory agent) :money)))
-
-(defn- gen-ord [state agent-id]
-  (let [target (target-burgers state agent-id)]
-    (generate-orders (get-in state [:agents agent-id]) target)))
-
-(defn settle-trade
-  "Given a trade and the gamestate, will update the inventories of the two participants in the
-   trade, including the cash settlement"
-  [state [buyer-id seller-id resource quantity]]
-  (let [cash (* quantity (get-in state [:marketplace :prices resource]))]
-    (-> state
-        (update-in [:agents buyer-id :inventory resource] + quantity)
-        (update-in [:agents buyer-id :inventory :money] - cash)
-        (update-in [:agents seller-id :inventory resource] - quantity)
-        (update-in [:agents seller-id :inventory :money] + cash))))
+;; Price adjustment
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn surplus
   "Given the orders for a single resource, will return by how much demand outstrips
@@ -99,6 +71,9 @@
   (merge prices (into {} (for [[resource orders] (group-by second unmatched-orders)]
                            [resource (* (if (pos? (surplus orders)) 0.9 1.1) (resource prices))]))))
 
+;; Trade settlement
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 ;; trade is 4 tuple of buyer, seller, material, quantity
 [0 1 :lettuce 2]
 
@@ -111,18 +86,33 @@
               (merge empty-resources (into {} (for [[k tds] (group-by #(nth % 2) trades)]
                                                 [k (apply + (map last tds))])))))
 
+(defn settle-trade
+  "Given a trade and the gamestate, will update the inventories of the two participants in the
+   trade, including the cash settlement"
+  [state [buyer-id seller-id resource quantity]]
+  (let [cash (* quantity (get-in state [:marketplace :prices resource]))]
+    (-> state
+        (update-in [:agents buyer-id :inventory resource] + quantity)
+        (update-in [:agents buyer-id :inventory :money] - cash)
+        (update-in [:agents seller-id :inventory resource] - quantity)
+        (update-in [:agents seller-id :inventory :money] + cash))))
+
 (defn trade-phase
   "The trade phase will generate a list of orders that each of the agents wants to make.
    These orders will be matched off against eachother, and the agent's inventories and cash
    changed accordingly."
   [state]
-  (let [orders (mapcat #(gen-ord state %) (keys (:agents state)))
+  (let [orders (mapcat #(og/gen-ord state %) (keys (:agents state)))
         {:keys [trades unmatched]} (om/find-trades orders)
         new-prices (price-adjust (get-in state [:marketplace :prices]) unmatched)]
     (-> (reduce settle-trade state trades)
         (assoc-in [:marketplace :prices] new-prices)
         (assoc :log {:orders orders :unmatched unmatched :trades trades})
         (update :trade-log log-trades trades))))
+
+
+;; Making and consuming burgers
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn make-burgers
   "The Agent will figure out how many burgers they can makes based on their inventories.
@@ -138,11 +128,17 @@
 (defn consume-phase [state]
   (update state :agents update-vals make-burgers))
 
+;; Orchestration
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defn day [state]
   (-> state
       produce-phase
       trade-phase
       consume-phase))
+
+;; Summarization
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn mean [xs] (int (/ (apply + xs) (count xs))))
 
