@@ -16,10 +16,9 @@ The sequence of events in this model is:
 
 1. Agents decide what to produce during the day
 2. They produce resources
-3. They decide how much of the produced resource to sell on the market, and how much for
-4. They decide on their 'consumption goals'
+3. They decide on their 'consumption goals'
+4. They decide how much of the produced resource to sell on the market, and how much for
 5. They go to market and buy things to meet those consumption goals
 6. They consume
 
 Or more broadly, 3 phases: produce, trade, consume.
-
