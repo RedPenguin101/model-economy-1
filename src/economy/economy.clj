@@ -26,8 +26,6 @@
                :lettuce []
                :bread   []}})
 
-(init-state 1)
-
 (defn agent-decide-production
   "When given an agent object and the prices in the marketplace, returns the good
    which the agent decides to produce"
@@ -51,14 +49,8 @@
           state
           (keys (:agents state))))
 
-(def demo-state (produce-phase (init-state 10)))
-
-demo-state
-
 (defn target-burgers
-  "Calculates the number of burgers the agent will aim to make
-   Returns a 2tuple of number of burgers, surplus resources (i.e. 'sell orders')
-   and the buy orders to get the necessary materials"
+  "Calculates the number of burgers the agent will aim to make"
   [state agent-id]
   (let [inv (dissoc (get-in state [:agents agent-id :inventory]) :money)
         money (get-in state [:agents agent-id :inventory :money])
@@ -75,19 +67,16 @@ demo-state
   "Generates the orders an agent will place based on their target number of burgers and
    current resources"
   [agent target]
-  (let [orders
-        (keep (fn [[k v]] (when (not (zero? (- v target))) [(if (pos? (- v target)) :sell :buy) k (:id agent) (Math/abs (- v target))])) (dissoc (:inventory agent) :money))]
-
-    orders))
-
-(target-burgers demo-state 0)
+  (keep (fn [[k v]] (when (not (zero? (- v target))) [(if (pos? (- v target)) :sell :buy) k (:id agent) (Math/abs (- v target))])) (dissoc (:inventory agent) :money)))
 
 (defn- gen-ord [state agent-id]
   (let [target (target-burgers state agent-id)]
     (generate-orders (get-in state [:agents agent-id]) target)))
 
-
-(defn settle-trade [state [buyer-id seller-id resource quantity]]
+(defn settle-trade
+  "Given a trade and the gamestate, will update the inventories of the two participants in the
+   trade, including the cash settlement"
+  [state [buyer-id seller-id resource quantity]]
   (let [cash (* quantity (get-in state [:marketplace :prices resource]))]
     (-> state
         (update-in [:agents buyer-id :inventory resource] + quantity)
@@ -95,29 +84,38 @@ demo-state
         (update-in [:agents seller-id :inventory resource] - quantity)
         (update-in [:agents seller-id :inventory :money] + cash))))
 
-(defn shortfall-surplus [orders]
+(defn surplus
+  "Given the orders for a single resource, will return by how much demand outstrips
+   supply. A positive number means there is a surplus, a negative means there is a shortfall"
+  [orders]
   (reduce (fn [s [buy-sell _ _ qty]]
-            ((if (= :buy buy-sell) + -) s qty))
+            ((if (= :buy buy-sell) - +) s qty))
           0 orders))
 
-(defn price-adjust [prices unmatched-orders]
+(defn price-adjust
+  "Adjust prices based on unmatched trades. If there is a surplus, the price will be reduced,
+   if there is a shortfall it will increase"
+  [prices unmatched-orders]
   (merge prices (into {} (for [[resource orders] (group-by second unmatched-orders)]
-                           [resource (* (if (pos? (shortfall-surplus orders)) 1.1 0.9) (resource prices))]))))
-
-
+                           [resource (* (if (pos? (surplus orders)) 0.9 1.1) (resource prices))]))))
 
 ;; trade is 4 tuple of buyer, seller, material, quantity
 [0 1 :lettuce 2]
-(defn log-trades [trade-log trades]
-  (def debug trades)
+
+(defn log-trades
+  "Updates the trade log with the trades provided. The trade log is a map
+   of resource->seq of trades"
+  [trade-log trades]
   (merge-with conj
               trade-log
               (merge empty-resources (into {} (for [[k tds] (group-by #(nth % 2) trades)]
                                                 [k (apply + (map last tds))])))))
 
-debug
-
-(defn trade-phase [state]
+(defn trade-phase
+  "The trade phase will generate a list of orders that each of the agents wants to make.
+   These orders will be matched off against eachother, and the agent's inventories and cash
+   changed accordingly."
+  [state]
   (let [orders (mapcat #(gen-ord state %) (keys (:agents state)))
         {:keys [trades unmatched]} (om/find-trades orders)
         new-prices (price-adjust (get-in state [:marketplace :prices]) unmatched)]
@@ -126,41 +124,25 @@ debug
         (assoc :log {:orders orders :unmatched unmatched :trades trades})
         (update :trade-log log-trades trades))))
 
-(defn make-burgers [agent]
+(defn make-burgers
+  "The Agent will figure out how many burgers they can makes based on their inventories.
+   Making the burgers will use up the inventory. The number of burgers are kept track of in
+   a list."
+  [agent]
   (let [able-to-make (apply min (vals (dissoc (:inventory agent) :money)))
         new-rec (update-vals (dissoc (:inventory agent) :money) #(- % able-to-make))]
     (-> agent
         (update :burgers conj able-to-make)
         (update :inventory merge new-rec))))
 
-(make-burgers {:id 0,
-               :inventory {:money 1300, :mammoth 3, :ketchup 2, :lettuce 2, :bread 2},
-               :production-efficiency {:mammoth 3, :ketchup 7, :lettuce 2, :bread 4}})
-
 (defn consume-phase [state]
   (update state :agents update-vals make-burgers))
-
-(consume-phase {:agents {0 {:id 0,
-                            :inventory {:money 1300, :mammoth 2, :ketchup 2, :lettuce 2, :bread 2},
-                            :production-efficiency {:mammoth 3, :ketchup 7, :lettuce 2, :bread 4}}}})
 
 (defn day [state]
   (-> state
       produce-phase
       trade-phase
       consume-phase))
-
-(def demo2 (init-state 2))
-(def demo4 (init-state 4))
-(def demo (init-state 10))
-(def demo100 (init-state 100))
-
-(comment)
-(do
-  nil)
-
-(def x (take 1000 (iterate day demo100)))
-(dissoc (last x) :log)
 
 (defn mean [xs] (int (/ (apply + xs) (count xs))))
 
@@ -170,8 +152,11 @@ debug
    :min (apply min xs)
    :mean (mean xs)})
 
-(map (comp summary-stats :burgers) (vals (:agents (last x))))
-(get-in (last x) [:marketplace :prices])
-(apply + (vals (get-in (last x) [:marketplace :prices])))
-(update-vals (get-in (last x) [:trade-log]) summary-stats)
-(take 5 (:agents (last x)))
+(defn run-and-summarize [init-state turns]
+  (let [x (last (take turns (iterate day init-state)))]
+    {:burger-stats (summary-stats (apply map + (map :burgers (vals (:agents x)))))
+     :final-prices (update-vals (get-in x [:marketplace :prices]) #(Math/round %))
+     :trade-vol-stats (update-vals (get-in x [:trade-log]) summary-stats)}))
+
+(def demo (init-state 10))
+(run-and-summarize demo 1000)
