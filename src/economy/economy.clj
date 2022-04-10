@@ -71,7 +71,7 @@
   (merge prices (into {} (for [[resource orders] (group-by second unmatched-orders)]
                            [resource (* (if (pos? (surplus orders)) 0.9 1.1) (resource prices))]))))
 
-;; Trade settlement
+;; Trading
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; trade is 4 tuple of buyer, seller, material, quantity
@@ -155,4 +155,4 @@
      :trade-vol-stats (update-vals (get-in x [:trade-log]) summary-stats)}))
 
 (def demo (init-state 10))
-(run-and-summarize demo 1000)
+(time (run-and-summarize demo 1000))
