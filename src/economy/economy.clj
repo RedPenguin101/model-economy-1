@@ -56,20 +56,38 @@
 ;; Price adjustment
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; order is a 4-tuple of type, material, order-placer id and amount
+[:sell :lettuce 0 2]
+
 (defn surplus
-  "Given the orders for a single resource, will return by how much demand outstrips
-   supply. A positive number means there is a surplus, a negative means there is a shortfall"
+  "Given the orders, will return a map of how much demand outstrips supply for each resource.
+   A positive number means there is a surplus, a negative means there is a shortfall"
   [orders]
-  (reduce (fn [s [buy-sell _ _ qty]]
-            ((if (= :buy buy-sell) - +) s qty))
-          0 orders))
+  (reduce (fn [s [buy-sell rsrs _ qty]]
+            (update s rsrs (if (= buy-sell :buy) - +) qty))
+          empty-resources
+          orders))
+
+(surplus [[:sell :lettuce 0 2] [:buy :mammoth 0 6]])
+
+
+;; trade is 4 tuple of buyer, seller, material, quantity
+[0 1 :lettuce 2]
+
+(defn trade-volumes
+  [trades]
+  (reduce (fn [s [_ _ rsrs qty]]
+            (update s rsrs + qty))
+          empty-resources
+          trades))
 
 (defn price-adjust
   "Adjust prices based on unmatched trades. If there is a surplus, the price will be reduced,
    if there is a shortfall it will increase"
   [prices unmatched-orders]
-  (merge prices (into {} (for [[resource orders] (group-by second unmatched-orders)]
-                           [resource (* (if (pos? (surplus orders)) 0.9 1.1) (resource prices))]))))
+  (merge-with * prices
+              (update-vals (surplus unmatched-orders) #(if (pos? %) 0.99 1.01))))
+
 
 ;; Trading
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -110,9 +128,10 @@
    Making the burgers will use up the inventory. The number of burgers are kept track of in
    a list."
   [agent]
-  (let [able-to-make (apply min (vals (:inventory agent)))]
+  (let [burgers-to-make (apply min (vals (:inventory agent)))]
     (-> agent
-        (assoc :burgers able-to-make)
+        (assoc :burgers burgers-to-make)
+        #_(update :inventory #(merge-with + %1 %2) (zipmap (keys resources) (repeat (- burgers-to-make))))
         (update :inventory merge empty-resources))))
 
 (defn consume-phase [state]
@@ -128,7 +147,7 @@
 
 (defn elon-tusk-adjust [state]
   (if (= (:turn state) 750)
-    (assoc-in state [:agents 0 :production-efficiency :ketchup] 120)
+    (assoc-in state [:agents 0 :production-efficiency :ketchup] 100)
     state))
 
 ;; Logging
@@ -146,7 +165,7 @@
   (-> state
       (update-in [:log :prices] conj (get-in state [:marketplace :prices]))
       (update-in [:log :burgers] conj (total-burgers state))
-      (update-in [:log :trades] conj (trade-summary state))
+      (update-in [:log :trades] conj (trade-volumes (get-in state [:marketplace :trades])))
       (update-in [:log :surplus] conj (get-in state [:marketplace :surplus]))))
 
 
@@ -245,6 +264,18 @@
                     :color {:field "resource"
                             :type "nominal"}}
          :width 1000
+         :height 300}
+
+        trades-line
+        {:data {:values (maps->datapoints 1000 (:trades data))}
+         :mark {:type "line" :strokeWidth 1}
+         :encoding {:x {:field "turn"
+                        :type "quantitative"}
+                    :y {:field "value"
+                        :type "quantitative"}
+                    :color {:field "resource"
+                            :type "nominal"}}
+         :width 1000
          :height 300}]
 
     (oz/view! [:div
@@ -257,4 +288,7 @@
                 [:vega-lite prices-line]]
                [:h2 "Market surplus/shortfall"]
                [:div {:style {:display "flex" :flex-direction "row"}}
-                [:vega-lite surplus-line]]])))
+                [:vega-lite surplus-line]]
+               [:h2 "Trades"]
+               [:div {:style {:display "flex" :flex-direction "row"}}
+                [:vega-lite trades-line]]])))
