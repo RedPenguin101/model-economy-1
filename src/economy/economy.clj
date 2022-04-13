@@ -1,23 +1,25 @@
 (ns economy.economy
   (:require [economy.order-matching :as om]
-            [economy.order-generate :as og]
-            [scicloj.viz.api :as viz]))
+            [economy.order-generate :as og]))
 
-(def resources {:mammoth {:id :mammoth :ease [1 5] :initial-price 200}
-                :ketchup {:id :ketchup :ease [3 10] :initial-price 200}
-                :lettuce {:id :lettuce :ease [3 9] :initial-price 200}
-                :bread   {:id :bread   :ease [2 8] :initial-price 200}})
+(def resources {:mammoth {:id :mammoth :ease 4 :initial-price 200}
+                :ketchup {:id :ketchup :ease 8 :initial-price 200}
+                :lettuce {:id :lettuce :ease 6 :initial-price 200}
+                :bread   {:id :bread   :ease 6 :initial-price 200}})
 
 (def empty-resources (zipmap (keys resources) (repeat 0)))
 
 (defn roll-efficiency! [resources]
   (into {} (for [r (vals resources)]
-             [(:id r) (+ (first (:ease r)) (rand-int (inc (abs (apply - (:ease r))))))])))
+             [(:id r) (rand-int (* 2 (:ease r)))])))
 
 (defn create-agent [id]
   [id {:id id
        :inventory (into {:money 1000} (map #(vector % 0) (keys resources)))
        :production-efficiency (roll-efficiency! resources)}])
+
+(roll-efficiency! resources)
+(create-agent 0)
 
 (defn init-state [num-agents]
   {:turn 0
@@ -116,6 +118,19 @@
 (defn consume-phase [state]
   (update state :agents update-vals make-burgers))
 
+;; Price fixing / modification
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn fix-prices [state]
+  (if (< 250 (:turn state) 500)
+    (assoc-in state [:marketplace :prices :mammoth] 200)
+    state))
+
+(defn elon-tusk-adjust [state]
+  (if (= (:turn state) 750)
+    (assoc-in state [:agents 0 :production-efficiency :ketchup] 120)
+    state))
+
 ;; Logging
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -143,6 +158,8 @@
       trade-phase
       consume-phase
       (update :turn inc)
+      fix-prices
+      elon-tusk-adjust
       log-state))
 
 ;; Summarization
@@ -159,31 +176,28 @@
 
 (comment
   "Oz"
-  (def demo (init-state 10))
-  (def data (:log (last (take 100 (iterate day demo)))))
+  (def demo (init-state 40))
+  (def data (:log (last (take 1000 (iterate day demo)))))
 
   (require '[oz.core :as oz])
 
   (oz/start-server!)
 
-  (def line-plot
-    {:data {:values (map-indexed #(hash-map :turn %1 :burgers %2) (reverse (:burgers data)))}
-     :encoding {:x {:field "turn" :type "quantitative"}
-                :y {:field "burgers" :type "quantitative"}}
-     :mark "line"})
+  (defn sliding-average [period]
+    (fn [xs]
+      (map mean (partition period 1 xs))))
 
-  (oz/view! line-plot)
 
-  (def price-data-points
+  (defn price-data-points [to-take prices]
     (mapcat (fn [price-map]
               (for [[k v] (dissoc price-map :turn)]
                 {:turn (:turn price-map)
                  :resource k
                  :price v}))
-            (map #(assoc %1 :turn %2) (reverse (:prices data)) (range))))
+            (map #(assoc %1 :turn %2) (reverse (take to-take prices)) (range))))
 
-  (def stacked-bar
-    {:data {:values price-data-points}
+  (def prices-stacked-bar
+    {:data {:values (price-data-points 100 (:prices data))}
      :mark "bar"
      :encoding {:x {:field "turn"
                     :type "ordinal"}
@@ -193,16 +207,38 @@
                 :color {:field "resource"
                         :type "nominal"}}})
 
-  (oz/view! stacked-bar)
+  (let [data (:log (last (take 1000 (iterate day (init-state 40)))))
 
-  (def stats
-    [:div
-     [:h1 "Econ model summary"]
-     [:h2 "Burgers Made"]
-     [:div {:style {:display "flex" :flex-direction "row"}}
-      [:vega-lite line-plot]]
-     [:h2 "Prices"]
-     [:div {:style {:display "flex" :flex-direction "row"}}
-      [:vega-lite stacked-bar]]])
 
-  (oz/view! stats))
+        production-line-plot
+        (let [burgers (reverse (:burgers data))
+              avg ((sliding-average 10) burgers)]
+          {:data {:values (mapcat #(vector {:turn %3 :name :burgers :value %1}
+                                           {:turn %3 :name :average :value %2}) burgers avg (range))}
+           :encoding {:x {:field "turn" :type "quantitative"}
+                      :y {:field "value" :type "quantitative"}
+                      :color {:field "name" :type "nominal"}}
+           :mark {:type "line" :strokeWidth 1}
+           :width 1000
+           :height 300})
+
+        prices-line
+        {:data {:values (price-data-points 1000 (:prices data))}
+         :mark "line"
+         :encoding {:x {:field "turn"
+                        :type "quantitative"}
+                    :y {:field "price"
+                        :type "quantitative"}
+                    :color {:field "resource"
+                            :type "nominal"}}
+         :width 1000
+         :height 300}]
+
+    (oz/view! [:div
+               [:h1 "Econ model summary"]
+               [:h2 "Burgers Made"]
+               [:div {:style {:display "flex" :flex-direction "row"}}
+                [:vega-lite production-line-plot]]
+               [:h2 "Prices"]
+               [:div {:style {:display "flex" :flex-direction "row"}}
+                [:vega-lite prices-line]]])))
