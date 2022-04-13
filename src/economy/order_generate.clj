@@ -3,8 +3,8 @@
 (defn- target-burgers
   "Calculates the number of burgers the agent will aim to make"
   [state agent-id]
-  (let [inv (dissoc (get-in state [:agents agent-id :inventory]) :money)
-        money (get-in state [:agents agent-id :inventory :money])
+  (let [inv (get-in state [:agents agent-id :inventory])
+        money (get-in state [:agents agent-id :money])
         prices (get-in state [:marketplace :prices])
         total-val (+ money (apply + (vals (merge-with * prices inv))))
         burger-price (apply + (vals prices))

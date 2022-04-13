@@ -15,7 +15,8 @@
 
 (defn create-agent [id]
   [id {:id id
-       :inventory (into {:money 1000} (map #(vector % 0) (keys resources)))
+       :money 1000
+       :inventory (into {} (map #(vector % 0) (keys resources)))
        :production-efficiency (roll-efficiency! resources)}])
 
 (roll-efficiency! resources)
@@ -83,9 +84,9 @@
   (let [cash (* quantity (get-in state [:marketplace :prices resource]))]
     (-> state
         (update-in [:agents buyer-id :inventory resource] + quantity)
-        (update-in [:agents buyer-id :inventory :money] - cash)
+        (update-in [:agents buyer-id :money] - cash)
         (update-in [:agents seller-id :inventory resource] - quantity)
-        (update-in [:agents seller-id :inventory :money] + cash))))
+        (update-in [:agents seller-id :money] + cash))))
 
 (defn trade-phase
   "The trade phase will generate a list of orders that each of the agents wants to make.
@@ -109,7 +110,7 @@
    Making the burgers will use up the inventory. The number of burgers are kept track of in
    a list."
   [agent]
-  (let [able-to-make (apply min (vals (dissoc (:inventory agent) :money)))]
+  (let [able-to-make (apply min (vals (:inventory agent)))]
     (-> agent
         (assoc :burgers able-to-make)
         (update :inventory merge empty-resources))))
