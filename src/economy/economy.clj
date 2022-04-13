@@ -1,6 +1,7 @@
 (ns economy.economy
   (:require [economy.order-matching :as om]
-            [economy.order-generate :as og]))
+            [economy.order-generate :as og]
+            [scicloj.viz.api :as viz]))
 
 (def resources {:mammoth {:id :mammoth :ease [1 5] :initial-price 700}
                 :ketchup {:id :ketchup :ease [3 10] :initial-price 100}
@@ -155,5 +156,27 @@
    :min (apply min xs)
    :mean (mean xs)})
 
-(def demo (init-state 10))
-(def data (:log (last (take 10 (iterate day demo)))))
+(comment
+  (require '[portal.api :as p])
+
+  (def p (p/open {:launcher :vs-code}))
+
+  (add-tap #'p/submit)
+
+  (tap> :hello)
+  (p/clear)
+
+  (def demo (init-state 10))
+  (def data (:log (last (take 100 (iterate day demo)))))
+
+  (tap> (-> (map-indexed #(hash-map :x %1 :y %2) (reverse (:burgers data)))
+            (viz/data)
+            (viz/type :line)
+            (viz/viz)))
+
+  (defn sum [xs] (apply + xs))
+
+  (tap> (-> (map-indexed #(hash-map :x %1 :y %2) (reverse (map (comp sum vals) (:prices data))))
+            (viz/data)
+            (viz/type :line)
+            (viz/viz))))
