@@ -76,8 +76,6 @@
 ;; trade is 4 tuple of buyer, seller, material, quantity
 [0 1 :lettuce 2]
 
-
-
 (defn settle-trade
   "Given a trade and the gamestate, will update the inventories of the two participants in the
    trade, including the cash settlement"
@@ -99,6 +97,7 @@
         new-prices (price-adjust (get-in state [:marketplace :prices]) unmatched)]
     (-> (reduce settle-trade state trades)
         (assoc-in [:marketplace :trades] trades)
+        (assoc-in [:marketplace :surplus] (into {} (map (fn [[r ordrs]] [r (surplus ordrs)]) (group-by second unmatched))))
         (assoc-in [:marketplace :prices] new-prices))))
 
 
@@ -146,7 +145,8 @@
   (-> state
       (update-in [:log :prices] conj (get-in state [:marketplace :prices]))
       (update-in [:log :burgers] conj (total-burgers state))
-      (update-in [:log :trades] conj (trade-summary state))))
+      (update-in [:log :trades] conj (trade-summary state))
+      (update-in [:log :surplus] conj (get-in state [:marketplace :surplus]))))
 
 
 ;; Orchestration
@@ -188,16 +188,16 @@
       (map mean (partition period 1 xs))))
 
 
-  (defn price-data-points [to-take prices]
+  (defn maps->datapoints [to-take maps]
     (mapcat (fn [price-map]
               (for [[k v] (dissoc price-map :turn)]
                 {:turn (:turn price-map)
                  :resource k
-                 :price v}))
-            (map #(assoc %1 :turn %2) (reverse (take to-take prices)) (range))))
+                 :value v}))
+            (map #(assoc %1 :turn %2) (reverse (take to-take maps)) (range))))
 
   (def prices-stacked-bar
-    {:data {:values (price-data-points 100 (:prices data))}
+    {:data {:values (maps->datapoints 100 (:prices data))}
      :mark "bar"
      :encoding {:x {:field "turn"
                     :type "ordinal"}
@@ -223,11 +223,23 @@
            :height 300})
 
         prices-line
-        {:data {:values (price-data-points 1000 (:prices data))}
-         :mark "line"
+        {:data {:values (maps->datapoints 1000 (:prices data))}
+         :mark {:type "line" :strokeWidth 1}
          :encoding {:x {:field "turn"
                         :type "quantitative"}
-                    :y {:field "price"
+                    :y {:field "value"
+                        :type "quantitative"}
+                    :color {:field "resource"
+                            :type "nominal"}}
+         :width 1000
+         :height 300}
+
+        surplus-line
+        {:data {:values (maps->datapoints 1000 (:surplus data))}
+         :mark {:type "line" :strokeWidth 1}
+         :encoding {:x {:field "turn"
+                        :type "quantitative"}
+                    :y {:field "value"
                         :type "quantitative"}
                     :color {:field "resource"
                             :type "nominal"}}
@@ -241,4 +253,7 @@
                 [:vega-lite production-line-plot]]
                [:h2 "Prices"]
                [:div {:style {:display "flex" :flex-direction "row"}}
-                [:vega-lite prices-line]]])))
+                [:vega-lite prices-line]]
+               [:h2 "Market surplus/shortfall"]
+               [:div {:style {:display "flex" :flex-direction "row"}}
+                [:vega-lite surplus-line]]])))
