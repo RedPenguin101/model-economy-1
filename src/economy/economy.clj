@@ -19,13 +19,9 @@
        :production-efficiency (roll-efficiency! resources)}])
 
 (defn init-state [num-agents]
-  {:agents (into {} (map create-agent (range num-agents)))
-   :marketplace {:orders []
-                 :prices (into {} (for [r (keys resources)] [r (get-in resources [r :initial-price])]))}
-   :trade-log {:mammoth []
-               :ketchup []
-               :lettuce []
-               :bread   []}})
+  {:turn 0
+   :agents (into {} (map create-agent (range num-agents)))
+   :marketplace {:prices (into {} (for [r (keys resources)] [r (get-in resources [r :initial-price])]))}})
 
 ;; Production of resources
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -77,14 +73,7 @@
 ;; trade is 4 tuple of buyer, seller, material, quantity
 [0 1 :lettuce 2]
 
-(defn log-trades
-  "Updates the trade log with the trades provided. The trade log is a map
-   of resource->seq of trades"
-  [trade-log trades]
-  (merge-with conj
-              trade-log
-              (merge empty-resources (into {} (for [[k tds] (group-by #(nth % 2) trades)]
-                                                [k (apply + (map last tds))])))))
+
 
 (defn settle-trade
   "Given a trade and the gamestate, will update the inventories of the two participants in the
@@ -106,9 +95,8 @@
         {:keys [trades unmatched]} (om/find-trades orders)
         new-prices (price-adjust (get-in state [:marketplace :prices]) unmatched)]
     (-> (reduce settle-trade state trades)
-        (assoc-in [:marketplace :prices] new-prices)
-        (assoc :log {:orders orders :unmatched unmatched :trades trades})
-        (update :trade-log log-trades trades))))
+        (assoc-in [:marketplace :trades] trades)
+        (assoc-in [:marketplace :prices] new-prices))))
 
 
 ;; Making and consuming burgers
@@ -119,14 +107,31 @@
    Making the burgers will use up the inventory. The number of burgers are kept track of in
    a list."
   [agent]
-  (let [able-to-make (apply min (vals (dissoc (:inventory agent) :money)))
-        new-inventory (update-vals (dissoc (:inventory agent) :money) #(- % able-to-make))]
+  (let [able-to-make (apply min (vals (dissoc (:inventory agent) :money)))]
     (-> agent
-        (update :burgers conj able-to-make)
+        (assoc :burgers able-to-make)
         (update :inventory merge empty-resources))))
 
 (defn consume-phase [state]
   (update state :agents update-vals make-burgers))
+
+;; Logging
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn total-burgers [state]
+  (apply + (map :burgers (vals (:agents state)))))
+
+(defn trade-summary [state]
+  (reduce (fn [A [_ _ rsrs qty]]
+            (update A rsrs (fnil + 0) qty))
+          {} (get-in state [:marketplace :trades])))
+
+(defn log-state [state]
+  (-> state
+      (update-in [:log :prices] conj (get-in state [:marketplace :prices]))
+      (update-in [:log :burgers] conj (total-burgers state))
+      (update-in [:log :trades] conj (trade-summary state))))
+
 
 ;; Orchestration
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -135,7 +140,9 @@
   (-> state
       produce-phase
       trade-phase
-      consume-phase))
+      consume-phase
+      (update :turn inc)
+      log-state))
 
 ;; Summarization
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -148,11 +155,5 @@
    :min (apply min xs)
    :mean (mean xs)})
 
-(defn run-and-summarize [init-state turns]
-  (let [x (last (take turns (iterate day init-state)))]
-    {:burger-stats (summary-stats (apply map + (map :burgers (vals (:agents x)))))
-     :final-prices (update-vals (get-in x [:marketplace :prices]) #(Math/round %))
-     :trade-vol-stats (update-vals (get-in x [:trade-log]) summary-stats)}))
-
 (def demo (init-state 10))
-(time (run-and-summarize demo 1000))
+(def data (:log (last (take 10 (iterate day demo)))))
