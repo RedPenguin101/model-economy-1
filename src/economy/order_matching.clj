@@ -34,7 +34,7 @@
        {:trades trades :unmatched orders}))))
 
 (defn find-trades [orders]
-  (let [goods-orders (vals (group-by second orders))]
+  (let [goods-orders (vals (group-by second (shuffle orders)))]
     (apply merge-with concat (for [good goods-orders]
                                (find-trades-single-good good)))))
 
