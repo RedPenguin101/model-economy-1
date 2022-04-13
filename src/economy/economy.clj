@@ -120,10 +120,10 @@
    a list."
   [agent]
   (let [able-to-make (apply min (vals (dissoc (:inventory agent) :money)))
-        new-rec (update-vals (dissoc (:inventory agent) :money) #(- % able-to-make))]
+        new-inventory (update-vals (dissoc (:inventory agent) :money) #(- % able-to-make))]
     (-> agent
         (update :burgers conj able-to-make)
-        (update :inventory merge new-rec))))
+        (update :inventory merge empty-resources))))
 
 (defn consume-phase [state]
   (update state :agents update-vals make-burgers))
