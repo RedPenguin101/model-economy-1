@@ -3,8 +3,8 @@
             [economy.order-generate :as og]
             [scicloj.viz.api :as viz]))
 
-(def resources {:mammoth {:id :mammoth :ease [1 5] :initial-price 700}
-                :ketchup {:id :ketchup :ease [3 10] :initial-price 100}
+(def resources {:mammoth {:id :mammoth :ease [1 5] :initial-price 200}
+                :ketchup {:id :ketchup :ease [3 10] :initial-price 200}
                 :lettuce {:id :lettuce :ease [3 9] :initial-price 200}
                 :bread   {:id :bread   :ease [2 8] :initial-price 200}})
 
@@ -148,7 +148,8 @@
 ;; Summarization
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn mean [xs] (int (/ (apply + xs) (count xs))))
+(defn sum [xs] (apply + xs))
+(defn mean [xs] (int (/ (sum xs) (count xs))))
 
 (defn summary-stats [xs]
   {:total (apply + xs)
@@ -157,26 +158,51 @@
    :mean (mean xs)})
 
 (comment
-  (require '[portal.api :as p])
-
-  (def p (p/open {:launcher :vs-code}))
-
-  (add-tap #'p/submit)
-
-  (tap> :hello)
-  (p/clear)
-
+  "Oz"
   (def demo (init-state 10))
   (def data (:log (last (take 100 (iterate day demo)))))
 
-  (tap> (-> (map-indexed #(hash-map :x %1 :y %2) (reverse (:burgers data)))
-            (viz/data)
-            (viz/type :line)
-            (viz/viz)))
+  (require '[oz.core :as oz])
 
-  (defn sum [xs] (apply + xs))
+  (oz/start-server!)
 
-  (tap> (-> (map-indexed #(hash-map :x %1 :y %2) (reverse (map (comp sum vals) (:prices data))))
-            (viz/data)
-            (viz/type :line)
-            (viz/viz))))
+  (def line-plot
+    {:data {:values (map-indexed #(hash-map :turn %1 :burgers %2) (reverse (:burgers data)))}
+     :encoding {:x {:field "turn" :type "quantitative"}
+                :y {:field "burgers" :type "quantitative"}}
+     :mark "line"})
+
+  (oz/view! line-plot)
+
+  (def price-data-points
+    (mapcat (fn [price-map]
+              (for [[k v] (dissoc price-map :turn)]
+                {:turn (:turn price-map)
+                 :resource k
+                 :price v}))
+            (map #(assoc %1 :turn %2) (reverse (:prices data)) (range))))
+
+  (def stacked-bar
+    {:data {:values price-data-points}
+     :mark "bar"
+     :encoding {:x {:field "turn"
+                    :type "ordinal"}
+                :y {:aggregate "sum"
+                    :field "price"
+                    :type "quantitative"}
+                :color {:field "resource"
+                        :type "nominal"}}})
+
+  (oz/view! stacked-bar)
+
+  (def stats
+    [:div
+     [:h1 "Econ model summary"]
+     [:h2 "Burgers Made"]
+     [:div {:style {:display "flex" :flex-direction "row"}}
+      [:vega-lite line-plot]]
+     [:h2 "Prices"]
+     [:div {:style {:display "flex" :flex-direction "row"}}
+      [:vega-lite stacked-bar]]])
+
+  (oz/view! stats))
