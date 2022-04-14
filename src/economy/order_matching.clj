@@ -17,16 +17,12 @@
                  (< desire offer) [:sell good seller (Math/abs (- desire offer))]
                  (> desire offer) [:buy  good buyer  (Math/abs (- desire offer))]))))))
 
-(single-match [:sell :lettuce 0 2] [:buy :lettuce 2 1])
 
 (defn- find-trades-single-good
   ([orders] (find-trades-single-good orders []))
   ([orders trades]
    (let [{:keys [buy sell]} (group-by first orders)
          trade+residual (single-match (first sell) (first buy))]
-     #_(do (println "sell" (first sell) "buy" (first buy))
-           (println "trade" (:trade trade+residual))
-           (println "residual" (:residual trade+residual)))
      (if trade+residual
        (recur (cond-> (concat (rest buy) (rest sell))
                 (:residual trade+residual) (conj (:residual trade+residual)))
@@ -47,21 +43,24 @@
                         :agent      (s/and nat-int? #(< % 10))
                         :quantity   (s/and pos-int? #(< % 10))))
 
-  (find-trades (gen/sample (s/gen ::order) 100)))
+  (find-trades (gen/sample (s/gen ::order) 100))
 
-(def orders
-  '([:sell :mammoth 0 1]
-    [:buy :mammoth 1 2]
-    [:sell :ketchup 1 5]
-    [:buy :lettuce 1 1]
-    [:buy :bread 1 1]
-    [:buy :mammoth 2 2]
-    [:sell :bread 2 4]
-    [:sell :mammoth 3 1]
-    [:buy :ketchup 3 1]
-    [:buy :lettuce 3 1]
-    [:buy :bread 3 1]))
+  (def orders
+    '([:sell :mammoth 0 1]
+      [:buy :mammoth 1 2]
+      [:sell :ketchup 1 5]
+      [:buy :lettuce 1 1]
+      [:buy :bread 1 1]
+      [:buy :mammoth 2 2]
+      [:sell :bread 2 4]
+      [:sell :mammoth 3 1]
+      [:buy :ketchup 3 1]
+      [:buy :lettuce 3 1]
+      [:buy :bread 3 1]))
 
-(find-trades orders)
 
-(single-match [:sell :mammoth 0 1] [:buy :mammoth 1 2])
+  (find-trades orders)
+
+  (single-match [:sell :lettuce 0 2] [:buy :lettuce 2 1])
+
+  (single-match [:sell :mammoth 0 1] [:buy :mammoth 1 2]))
