@@ -1,7 +1,6 @@
 (ns economy.economy
   (:require [economy.order-matching :as om]
-            [economy.order-generate :as og]
-            [oz.core :as oz]))
+            [economy.order-generate :as og]))
 
 (def resources {:mammoth {:id :mammoth :ease 4 :initial-price 200}
                 :ketchup {:id :ketchup :ease 8 :initial-price 200}
@@ -126,7 +125,7 @@
    These orders will be matched off against eachother, and the agent's inventories and cash
    changed accordingly."
   [state price-adjust]
-  (let [orders (mapcat #(og/gen-ord state %) (keys (:agents state)))
+  (let [orders (mapcat #(og/generate-orders state %) (keys (:agents state)))
         {:keys [trades unmatched]} (om/find-trades orders)
         new-prices (price-adjust (get-in state [:marketplace :prices]) unmatched)]
     (-> (reduce settle-trade state trades)
@@ -199,114 +198,6 @@
         (elon-tusk-adjust (:elon-tusk config))
         log-state)))
 
-;; Summarization
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defn sum  [xs] (apply + xs))
-(defn mean [xs] (int (/ (sum xs) (count xs))))
-(defn sliding-average [period] (fn [xs] (map mean (partition period 1 xs))))
-(def ten-period-average (sliding-average 10))
-
-(defn summary-stats [xs]
-  {:total (apply + xs)
-   :max (apply max xs)
-   :min (apply min xs)
-   :mean (mean xs)})
-
-;; visualization
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defonce server (atom nil))
-
-(defn stop-server []
-  (when @server (@server) (reset! server nil)))
-
-(defn maps->datapoints [to-take maps]
-  (mapcat (fn [price-map]
-            (for [[k v] (dissoc price-map :turn)]
-              {:turn (:turn price-map)
-               :resource k
-               :value v}))
-          (map #(assoc %1 :turn %2) (reverse (take to-take maps)) (range))))
-
-(defn run-simulation [config]
-  (time (let [sim (simulation config)
-              data (:log (last (take (or (:turns config) 1000) (iterate sim (init-state (or (:agents config) 40))))))
-
-              production-line-plot
-              (let [burgers (reverse (:burgers data))
-                    avg (ten-period-average burgers)]
-                {:data {:values (mapcat #(vector {:turn %3 :name :burgers :value %1}
-                                                 {:turn %3 :name :average :value %2}) burgers avg (range))}
-                 :encoding {:x {:field "turn" :type "quantitative"}
-                            :y {:field "value" :type "quantitative"}
-                            :color {:field "name" :type "nominal"}}
-                 :mark {:type "line" :strokeWidth 1}
-                 :width 1000
-                 :height 300})
-
-              prices-line
-              {:data {:values (maps->datapoints 1000 (:prices data))}
-               :mark {:type "line" :strokeWidth 1}
-               :encoding {:x {:field "turn"
-                              :type "quantitative"}
-                          :y {:field "value"
-                              :type "quantitative"}
-                          :color {:field "resource"
-                                  :type "nominal"}}
-               :width 1000
-               :height 300}
-
-              surplus-line
-              {:data {:values (maps->datapoints 1000 (:surplus data))}
-               :mark {:type "line" :strokeWidth 1}
-               :encoding {:x {:field "turn"
-                              :type "quantitative"}
-                          :y {:field "value"
-                              :type "quantitative"}
-                          :color {:field "resource"
-                                  :type "nominal"}}
-               :width 1000
-               :height 300}
-
-              trades-line
-              {:data {:values (maps->datapoints 1000 (:trades data))}
-               :mark {:type "line" :strokeWidth 1}
-               :encoding {:x {:field "turn"
-                              :type "quantitative"}
-                          :y {:field "value"
-                              :type "quantitative"}
-                          :color {:field "resource"
-                                  :type "nominal"}}
-               :width 1000
-               :height 300}
-
-              produced-line
-              {:data {:values (maps->datapoints 1000 (:produced data))}
-               :mark {:type "line" :strokeWidth 1}
-               :encoding {:x {:field "turn"
-                              :type "quantitative"}
-                          :y {:field "value"
-                              :type "quantitative"}
-                          :color {:field "resource"
-                                  :type "nominal"}}
-               :width 1000
-               :height 300}]
-          (when (nil? @server) (reset! server (oz/start-server!)))
-          (oz/view! [:div
-                     [:h1 "Econ model summary"]
-                     [:h2 "Burgers Made"]
-                     [:div {:style {:display "flex" :flex-direction "row"}}
-                      [:vega-lite production-line-plot]]
-                     [:h2 "Prices"]
-                     [:div {:style {:display "flex" :flex-direction "row"}}
-                      [:vega-lite prices-line]]
-                     [:h2 "Market surplus/shortfall"]
-                     [:div {:style {:display "flex" :flex-direction "row"}}
-                      [:vega-lite surplus-line]]
-                     [:h2 "Trades"]
-                     [:div {:style {:display "flex" :flex-direction "row"}}
-                      [:vega-lite trades-line]]
-                     [:h2 "Produced"]
-                     [:div {:style {:display "flex" :flex-direction "row"}}
-                      [:vega-lite produced-line]]]))))
+(defn run [config]
+  (let [sim (simulation config)]
+    (take (or (:turns config) 1000) (iterate sim (init-state (or (:agents config) 40))))))

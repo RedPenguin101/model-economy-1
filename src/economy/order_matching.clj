@@ -1,6 +1,9 @@
-(ns economy.order-matching)
+(ns economy.order-matching
+  "This namespace contains methods which facilitate the operation of the Marketplace.
+   For example, functions which, when given orders, will 'match' the buy and sell orders
+   and generate trades")
 
-;; order is a 4-tuple of type, material, order-placer id and amount
+;; An order is a 4-tuple of type, material, order-placer id and amount
 [:sell :lettuce 0 2]
 
 ;; trade is 4 tuple of buyer, seller, material, quantity
@@ -29,7 +32,11 @@
               (conj trades (:trade trade+residual)))
        {:trades trades :unmatched orders}))))
 
-(defn find-trades [orders]
+(defn find-trades
+  "Given a list of orders, this function will apply a strategy to match these orders against
+   eachother in 'trades'. It returns a map of trades and unmatched orders (i.e. those buy orders
+   which do not have a corresponding sell and vice versa)"
+  [orders]
   (let [goods-orders (vals (group-by second (shuffle orders)))]
     (apply merge-with concat (for [good goods-orders]
                                (find-trades-single-good good)))))
